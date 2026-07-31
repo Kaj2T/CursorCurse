@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cursor offset demo (realistic shapes)</title>
+  <style>
+    body{
+      margin:0;
+      min-height:100vh;
+      overflow:hidden;
+      cursor:none; /* hide native cursor */
+      background:#0f172a;
+      color:#e2e8f0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+
+    .cursorWrap{
+      position:fixed;
+      left:0; top:0;
+      width: 40px;
+      height: 40px;
+      pointer-events:none;
+      z-index: 999999;
+
+      /* We'll position via transform for smoothness */
+      transform: translate3d(-9999px, -9999px, 0);
+      will-change: transform, opacity;
+
+      /* subtle shadow to look less “flat” */
+      filter: drop-shadow(0 8px 10px rgba(0,0,0,.35));
+      opacity: 1;
+    }
+
+    /* Inner SVG is what changes between cursor types */
+    .cursorSvg{
+      width:100%;
+      height:100%;
+    }
+
+    /* Optional light hint (no backdrop-filter for performance) */
+    .hint{
+      position:fixed;
+      left:16px; bottom:16px;
+      background: rgba(2, 6, 23, 0.55);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      padding:10px 12px;
+      border-radius:12px;
+      font-size:14px;
+      line-height:1.3;
+    }
+  </style>
+</head>
+<body>
+  <div class="cursorWrap" id="cw" aria-hidden="true">
+    <svg class="cursorSvg" viewBox="0 0 40 40" id="cursorSvg" xmlns="http://www.w3.org/2000/svg">
+      <!-- arrow by default (filled white with outline) -->
+      <path id="cursorPath"
+        d="M 13 8 L 33 20 L 13 32 L 16 22 L 6 20 L 16 18 Z"
+        fill="#e2e8f0" stroke="#0f172a" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  </div>
+
+  <div class="hint">Offset cursor that eases back near edges.</div>
+
+  <script>
+    const cw = document.getElementById('cw');
+    const cursorSvg = document.getElementById('cursorSvg');
+    const cursorPath = document.getElementById('cursorPath');
+
+    // Offset behavior
+    const BORDER_START_PX = 70;  // start easing back
+    const BORDER_END_PX   = 20;  // offset becomes 0 here
+    const OFFSET_MAG      = 20;  // max offset (px)
+    const SMOOTH          = 0.18; // lower = smoother but can feel laggy; try 0.12~0.25
+
+    let x = innerWidth / 2, y = innerHeight / 2;
+    let targetX = x, targetY = y;
+
+    // Direction for “flow”
+    let lastMouseX = x, lastMouseY = y;
+
+    function clamp01(n){ return Math.max(0, Math.min(1, n)); }
+
+    function edgeFactor(clientX, clientY){
+      const vw = innerWidth, vh = innerHeight;
+      const minDist = Math.min(clientX, vw - clientX, clientY, vh - clientY);
+      const t = (minDist - BORDER_END_PX) / (BORDER_START_PX - BORDER_END_PX);
+      return clamp01(t); // 1 far from edges, 0 at edges
+    }
+
+    // Swap shape based on CSS cursor keyword (best-effort mimic)
+    function setCursorShapeFromCssCursor(){
+      const cs = getComputedStyle(document.body).cursor || 'default';
+      const c = cs.toLowerCase();
+
+      // Choose a path shape. (Not perfect OS fidelity, but “actual cursor”-like.)
+      if (c.includes('text') || c.includes('ibeam')) {
+        // I-beam
+        cursorPath.setAttribute('d', 'M 18 8 L 22 8 L 17 32 L 13 32 Z M 16 19 L 29 19 L 28 22 L 15 22 Z');
+        cursorPath.setAttribute('fill', '#e2e8f0');
+      } else if (c.includes('crosshair')) {
+        // crosshair-ish
+        cursorPath.setAttribute('d',
+          'M 19 8 L 21 8 L 21 16 L 29 16 L 29 18 L 21 18 L 21 30 L 19 30 L 19 18 L 11 18 L 11 16 L 19 16 Z');
+        cursorPath.setAttribute('fill', '#e2e8f0');
+      } else if (c.includes('grab') || c.includes('grabbing') || c.includes('hand')) {
+        // hand-ish
+        cursorPath.setAttribute('d',
+          'M 14 22 L 14 12 Q 14 9 17 9 Q 19 9 20 11 L 20 20 L 22 20 L 22 10 Q 22 8 25 8 Q 28 8 28 11 L 28 21 L 30 21 Q 32 21 32 23 L 32 25 Q 32 32 24 32 L 20 32 Q 14 32 14 26 Z');
+        cursorPath.setAttribute('fill', '#f59e0b');
+      } else if (c.includes('resize') || c.includes('ew-resize') || c.includes('ns-resize')) {
+        // generic resize arrow-ish
+        cursorPath.setAttribute('d', 'M 10 20 L 30 8 L 28 22 L 35 22 L 20 32 L 22 22 Z');
+        cursorPath.setAttribute('fill', '#e2e8f0');
+      } else {
+        // default arrow
+        cursorPath.setAttribute('d', 'M 13 8 L 33 20 L 13 32 L 16 22 L 6 20 L 16 18 Z');
+        cursorPath.setAttribute('fill', '#e2e8f0');
+      }
+
+      // Keep outline consistent
+      cursorPath.setAttribute('stroke', '#0f172a');
+      cursorPath.setAttribute('stroke-width', '2');
+      cursorPath.setAttribute('stroke-linejoin', 'round');
+    }
+
+    // Update shape only occasionally
+    let lastCssCursor = '';
+    function maybeUpdateShape(){
+      const cs = getComputedStyle(document.body).cursor || '';
+      if (cs !== lastCssCursor) {
+        lastCssCursor = cs;
+        setCursorShapeFromCssCursor();
+      }
+    }
+    setInterval(maybeUpdateShape, 200);
+
+    // Hide native cursor (already in CSS)
+    window.addEventListener('mousemove', (e) => {
+      const mx = e.clientX, my = e.clientY;
+
+      const dx = mx - lastMouseX;
+      const dy = my - lastMouseY;
+      lastMouseX = mx; lastMouseY = my;
+
+      const f = edgeFactor(mx, my); // 0..1
+      const mag = Math.hypot(dx, dy);
+
+      // direction unit vector; fall back to diagonal
+      const ux = mag > 0.01 ? dx / mag : 0.707;
+      const uy = mag > 0.01 ? dy / mag : 0.707;
+
+      const offset = OFFSET_MAG * f;
+
+      targetX = mx + ux * offset;
+      targetY = my + uy * offset;
+
+      // Also fade near edges a bit (tweak/remove if you want)
+      cw.style.opacity = (0.25 + 0.75 * f).toFixed(3);
+    }, { passive: true });
+
+    window.addEventListener('resize', () => {
+      // keep targets in-bounds
+      targetX = Math.max(0, Math.min(innerWidth, targetX));
+      targetY = Math.max(0, Math.min(innerHeight, targetY));
+    });
+
+    function animate(){
+      x += (targetX - x) * SMOOTH;
+      y += (targetY - y) * SMOOTH;
+
+      // Center the 40x40 svg around the point.
+      // cursor “hotspot” is roughly at its tip; we approximate with half-size.
+      const cx = x - 14; // tweak: tip alignment
+      const cy = y - 10;
+
+      cw.style.transform = `translate3d(${cx}px, ${cy}px, 0)`;
+      requestAnimationFrame(animate);
+    }
+
+    setCursorShapeFromCssCursor();
+    maybeUpdateShape();
+    animate();
+  </script>
+</body>
+</html>
