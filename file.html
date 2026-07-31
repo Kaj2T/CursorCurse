@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cursor offset demo (border-safe)</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    /* Hide default cursor, show our custom one */
+    .custom-cursor {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: #38bdf8;
+      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      will-change: left, top;
+    }
+
+    .hint {
+      position: fixed;
+      left: 16px;
+      bottom: 16px;
+      background: rgba(2, 6, 23, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      padding: 10px 12px;
+      border-radius: 12px;
+      backdrop-filter: blur(6px);
+      font-size: 14px;
+      line-height: 1.3;
+    }
+
+    /* We'll toggle cursor visibility near borders */
+    .cursor-hidden .custom-cursor {
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="custom-cursor" id="cursor"></div>
+  <div class="hint">
+    Cursor is offset by JS, but it fades near window borders.
+  </div>
+
+  <script>
+    // --- Config ---
+    const BORDER_SAFE_PX = 40;     // distance from borders where we stop showing it
+    const OFFSET_X = 18;           // how much to shift cursor (px)
+    const OFFSET_Y = 10;           // how much to shift cursor (px)
+    const SMOOTHING = 0.25;        // 0..1 (higher = snappier)
+
+    const cursor = document.getElementById('cursor');
+
+    // Current displayed position (we smooth toward target)
+    let x = window.innerWidth / 2;
+    let y = window.innerHeight / 2;
+    let targetX = x;
+    let targetY = y;
+
+    function setTargetFromMouse(clientX, clientY) {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      // If mouse is near borders, don't show the custom cursor.
+      const nearLeft = clientX < BORDER_SAFE_PX;
+      const nearRight = clientX > (vw - BORDER_SAFE_PX);
+      const nearTop = clientY < BORDER_SAFE_PX;
+      const nearBottom = clientY > (vh - BORDER_SAFE_PX);
+
+      const nearBorder = nearLeft || nearRight || nearTop || nearBottom;
+
+      // Show/hide by toggling a class on body
+      document.body.classList.toggle('cursor-hidden', nearBorder);
+
+      if (!nearBorder) {
+        targetX = clientX + OFFSET_X;
+        targetY = clientY + OFFSET_Y;
+      }
+    }
+
+    // Hide native cursor
+    document.body.style.cursor = 'none';
+
+    window.addEventListener('mousemove', (e) => {
+      setTargetFromMouse(e.clientX, e.clientY);
+    }, { passive: true });
+
+    // If the window resizes, keep cursor within bounds
+    window.addEventListener('resize', () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      x = Math.min(Math.max(x, 0), vw);
+      y = Math.min(Math.max(y, 0), vh);
+    });
+
+    function animate() {
+      // Smoothly move custom cursor toward target
+      x += (targetX - x) * SMOOTHING;
+      y += (targetY - y) * SMOOTHING;
+
+      cursor.style.left = x + 'px';
+      cursor.style.top = y + 'px';
+
+      requestAnimationFrame(animate);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
