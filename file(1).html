@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cursor offset with edge flow-back</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      overflow: hidden;
+
+      /* Hide native cursor */
+      cursor: none;
+    }
+
+    .custom-cursor {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+
+      /* Default appearance */
+      background: rgba(56, 189, 248, 0.95);
+      box-shadow:
+        0 0 0 4px rgba(56, 189, 248, 0.12),
+        0 10px 25px rgba(0,0,0,0.35);
+
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      will-change: left, top, opacity;
+      z-index: 999999;
+      opacity: 1;
+
+      /* We'll overwrite cursor-ish look via JS */
+      /* This doesn't truly “copy” the OS cursor, but helps mimic it */
+      filter: saturate(1.1);
+    }
+
+    .hint {
+      position: fixed;
+      left: 16px;
+      bottom: 16px;
+      background: rgba(2, 6, 23, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      padding: 10px 12px;
+      border-radius: 12px;
+      backdrop-filter: blur(6px);
+      font-size: 14px;
+      line-height: 1.3;
+    }
+  </style>
+</head>
+<body>
+  <div class="custom-cursor" id="cursor"></div>
+  <div class="hint">
+    Offset cursor that eases back near edges.
+  </div>
+
+  <script>
+    const cursorEl = document.getElementById('cursor');
+
+    // --- Config ---
+    const BORDER_START_PX = 60;   // start easing back within this distance
+    const BORDER_END_PX   = 18;   // within this distance, it stops offsetting fully
+    const OFFSET_MAG      = 18;   // max offset magnitude (px)
+    const SMOOTH          = 0.20;  // smoothing of motion (0..1)
+
+    // State
+    let x = innerWidth / 2, y = innerHeight / 2;
+    let targetX = x, targetY = y;
+
+    // Track mouse direction for nicer “flow”
+    let lastMouseX = x, lastMouseY = y;
+    let dx = 0, dy = 0;
+
+    function clamp01(n) {
+      return Math.max(0, Math.min(1, n));
+    }
+
+    // How close is pointer to the nearest border? (0 = at border, 1 = far away)
+    function edgeFactor(clientX, clientY) {
+      const vw = innerWidth, vh = innerHeight;
+
+      const distLeft = clientX;
+      const distRight = vw - clientX;
+      const distTop = clientY;
+      const distBottom = vh - clientY;
+
+      const minDist = Math.min(distLeft, distRight, distTop, distBottom);
+
+      // In zone: minDist <= BORDER_END_PX => factor 0 (no offset)
+      // minDist >= BORDER_START_PX => factor 1 (full offset)
+      const t = (minDist - BORDER_END_PX) / (BORDER_START_PX - BORDER_END_PX);
+      return clamp01(t);
+    }
+
+    function mapCursorLikeStyle() {
+      // Try to mimic the "cursor" CSS value being used on the page.
+      // Note: it won't be pixel-identical to the OS cursor.
+      const cs = getComputedStyle(document.body).cursor;
+
+      // Use simple heuristics: adjust shape/color/size based on cursor keyword.
+      // You can extend this list.
+      let size = 20;
+      let bg = 'rgba(56, 189, 248, 0.95)';
+      let borderRadius = '999px';
+      let mode = 'dot';
+
+      if (cs.includes('crosshair')) {
+        mode = 'cross';
+        size = 22;
+        bg = 'rgba(56, 189, 248, 0.0)'; // transparent, we'll use pseudo-ish lines via gradients
+        borderRadius = '6px';
+      } else if (cs.includes('pointer') || cs.includes('hand')) {
+        mode = 'dot';
+        size = 20;
+        bg = 'rgba(34, 211, 238, 0.95)';
+        borderRadius = '999px';
+      } else if (cs.includes('text') || cs.includes('ibeam')) {
+        mode = 'bar';
+        size = 18;
+        bg = 'rgba(56, 189, 248, 0.95)';
+        borderRadius = '4px';
+      } else if (cs.includes('grab')) {
+        mode = 'dot';
+        size = 20;
+        bg = 'rgba(245, 158, 11, 0.95)';
+        borderRadius = '999px';
+      } else if (cs.includes('wait') || cs.includes('progress')) {
+        mode = 'ring';
+        size = 22;
+        bg = 'rgba(56, 189, 248, 0.0)';
+        borderRadius = '999px';
+      }
+
+      cursorEl.style.width = size + 'px';
+      cursorEl.style.height = size + 'px';
+      cursorEl.style.borderRadius = borderRadius;
+      cursorEl.style.background = bg;
+
+      // Draw cross/ring/bar using background gradients when needed
+      if (mode === 'cross') {
+        cursorEl.style.background =
+          'linear-gradient(rgba(56,189,248,0.95), rgba(56,189,248,0.95)) center/2px 100% no-repeat,' +
+          'linear-gradient(rgba(56,189,248,0.95), rgba(56,189,248,0.95)) center/100% 2px no-repeat,' +
+          'radial-gradient(circle at center, rgba(56,189,248,0.95) 0 2px, rgba(56,189,248,0) 3px)';
+        cursorEl.style.boxShadow = '0 0 0 4px rgba(56, 189, 248, 0.12), 0 10px 25px rgba(0,0,0,0.35)';
+      } else if (mode === 'bar') {
+        cursorEl.style.background =
+          'linear-gradient(rgba(56,189,248,0.95), rgba(56,189,248,0.95)) center/100% 3px no-repeat,' +
+          'radial-gradient(circle at center, rgba(56,189,248,0.95) 0 2px, rgba(56,189,248,0) 3px)';
+        cursorEl.style.boxShadow = '0 0 0 4px rgba(56, 189, 248, 0.12), 0 10px 25px rgba(0,0,0,0.35)';
+      } else if (mode === 'ring') {
+        cursorEl.style.background =
+          'radial-gradient(circle at center, rgba(56,189,248,0.0) 55%, rgba(56,189,248,0.95) 57% 65%, rgba(56,189,248,0) 67%)';
+        cursorEl.style.boxShadow = '0 0 0 4px rgba(56, 189, 248, 0.10), 0 10px 25px rgba(0,0,0,0.35)';
+      } else {
+        // dot mode
+        cursorEl.style.boxShadow =
+          '0 0 0 4px rgba(56, 189, 248, 0.12), 0 10px 25px rgba(0,0,0,0.35)';
+      }
+    }
+
+    // Update cursor "mimic" occasionally
+    let lastCursorValue = '';
+    setInterval(() => {
+      const cs = getComputedStyle(document.body).cursor;
+      if (cs !== lastCursorValue) {
+        lastCursorValue = cs;
+        mapCursorLikeStyle();
+      }
+    }, 120);
+
+    document.body.addEventListener('mousemove', (e) => {
+      // Mouse deltas for direction
+      const mx = e.clientX;
+      const my = e.clientY;
+
+      dx = mx - lastMouseX;
+      dy = my - lastMouseY;
+      lastMouseX = mx;
+      lastMouseY = my;
+
+      const f = edgeFactor(mx, my); // 0..1 (near edges => 0)
+
+      // Normalize direction. If movement is tiny, just use diagonal.
+      const mag = Math.hypot(dx, dy);
+      const ux = mag > 0.01 ? dx / mag : 0.707;
+      const uy = mag > 0.01 ? dy / mag : 0.707;
+
+      const offset = OFFSET_MAG * f; // fades to 0 near borders
+
+      targetX = mx + ux * offset;
+      targetY = my + uy * offset;
+
+      // If you want opacity to also fade near borders, you can do:
+      cursorEl.style.opacity = (0.2 + 0.8 * f).toFixed(3);
+    }, { passive: true });
+
+    function animate() {
+      x += (targetX - x) * SMOOTH;
+      y += (targetY - y) * SMOOTH;
+      cursorEl.style.left = x + 'px';
+      cursorEl.style.top  = y + 'px';
+      requestAnimationFrame(animate);
+    }
+
+    // Initial
+    mapCursorLikeStyle();
+    animate();
+  </script>
+</body>
+</html>
